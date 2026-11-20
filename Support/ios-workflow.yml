@@ -1,0 +1,72 @@
+name: 构建 iOS 包（未签名 IPA）
+
+# 没有 Mac 也能出包：云端 macOS 上 xcodegen 生成工程 + xcodebuild 编译，
+# 产物打成未签名 .ipa，供免费 Apple ID 自签侧载。
+# 失败时自动把日志开成 Issue，方便远程定位修复。
+
+# 使用方式：把本文件的全部内容复制到一个新文件
+#           .github/workflows/ios.yml
+# 提交到 main 分支，GitHub 就会开始跑构建。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 环境
+        run: |
+          sw_vers
+          xcodebuild -version
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成工程
+        run: xcodegen generate --spec project.yml
+
+      - name: 编译（不签名）
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild -project PhotoMind.xcodeproj -scheme PhotoMind \
+            -configuration Release -sdk iphoneos \
+            -destination "generic/platform=iOS" -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build.log
+
+      - name: 检查并打包 IPA
+        run: |
+          set -e
+          APP="build/Build/Products/Release-iphoneos/PhotoMind.app"
+          test -d "$APP" && test -f "$APP/PhotoMind"
+          lipo -archs "$APP/PhotoMind"
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/PhotoMind.app
+          /usr/bin/zip -qry PhotoMind-unsigned.ipa Payload
+          ls -lh PhotoMind-unsigned.ipa
+
+      - name: 上传 IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoMind-unsigned-ipa
+          path: PhotoMind-unsigned.ipa
+          retention-days: 21
+
+      - name: 失败时开 Issue 回报日志
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo '云端构建失败，日志末尾：'; echo; echo '```'; tail -n 120 build.log 2>/dev/null; echo '```'; } > fail-body.md
+          gh issue create --title "云端构建失败 run ${{ github.run_number }}" --body-file fail-body.md
