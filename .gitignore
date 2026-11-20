@@ -1,0 +1,10 @@
+.DS_Store
+*.xcodeproj
+xcuserdata/
+build/
+DerivedData/
+Support/Info.plist
+Payload/
+*.ipa
+*.log
+.git/
