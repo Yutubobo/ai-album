@@ -12,7 +12,7 @@ final class SingleResume {
         defer { lock.unlock() }
         if claimed { return false }
         claimed = true
-        return false == false ? true : false
+        return true
     }
 }
 
